@@ -194,10 +194,73 @@ export class SearchSource {
   async fetch(options: FetchOptions = {}) {
     const $injector = await chrome.dangerouslyGetActiveInjector();
     const es = $injector.get('es') as ApiCaller;
+    // console.log(es);
 
     await this.requestIsStarting(options);
 
-    const searchRequest = await this.flatten();
+    const searchRequest = this.flatten();
+
+    //     let SQL = searchRequest.query[0].query;
+    // let result = /select (.*) from kibana_sample_data_flights where ([^=\s]*).*["'](.*)["']/i.exec(SQL);
+    // if (result) {
+    //   searchRequest.body.query.bool.filter[0] = {
+    //     "bool": {
+    //       "must": [
+    //         {
+    //           "wildcard": {
+    //             [result[2]]: {
+    //               "wildcard": result[3].replace(/%/g, '*'),
+    //               "boost": 1.0
+    //             }
+    //           }
+    //         }
+    //       ],
+    //       "adjust_pure_negative": true,
+    //       "boost": 1.0
+    //     }
+    //   }
+    //   searchRequest.body._source = {
+    //     "includes": result[1].split(',').map((s) => s.trim()),
+    //     "excludes": []
+    //   }
+    // }
+
+    //     console.log(searchRequest);
+
+    // console.log("Original Request:", searchRequest);
+
+    // let SQL = searchRequest.query[0].query;
+
+    // fetch("http://localhost:5601/afk/api/sql_console/translate", {
+    //   "headers": {
+    //     "accept": "application/json, text/plain, */*",
+    //     "accept-language": "en-US,en;q=0.9",
+    //     "content-type": "application/json;charset=UTF-8",
+    //     "kbn-version": "7.6.1",
+    //     "sec-fetch-dest": "empty",
+    //     "sec-fetch-mode": "cors",
+    //     "sec-fetch-site": "same-origin"
+    //   },
+    //   "referrer": "http://localhost:5601/afk/app/sql-kibana",
+    //   "referrerPolicy": "no-referrer-when-downgrade",
+    //   "body": `{"query":"${SQL}"}`,
+    //   "method": "POST",
+    //   "mode": "cors",
+    //   "credentials": "omit"
+    // }).then(response => response.json())
+    //   .then(data => {
+    //     let filter = [...data.resp.query.bool.filter, ...searchRequest.body.query.bool.filter.slice(1)];
+    //     // searchRequest.body = { ...searchRequest.body, ...data.resp };
+    //     searchRequest.body.query.bool.filter = filter;
+    //     searchRequest.body._source = {
+    //       "includes": ["FlightNum", "Cancelled"],
+    //       "excludes": []
+    //     }
+    //     console.log("Filter:", filter)
+    //     console.log("Translated:", data)
+    //     console.log("Modified:", searchRequest);
+    //   });
+
     this.history = [searchRequest];
 
     const response = await fetchSoon(

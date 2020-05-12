@@ -31,7 +31,40 @@ export async function fetchSoon(
   { es, config, esShardTimeout }: FetchHandlers
 ) {
   const msToDelay = config.get('courier:batchSearches') ? 50 : 0;
-  return delayedFetch(request, options, { es, config, esShardTimeout }, msToDelay);
+
+  if (request.query[0].query.length === 0)
+    return delayedFetch(request, options, { es, config, esShardTimeout }, msToDelay);
+
+  return fetch('../api/sql_console/translate', {
+    headers: {
+      accept: 'application/json, text/plain, */*',
+      'accept-language': 'en-US,en;q=0.9',
+      'content-type': 'application/json;charset=UTF-8',
+      'kbn-version': '7.6.1',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+    },
+    referrerPolicy: 'no-referrer-when-downgrade',
+    body: `{"query":"${request.query[0].query}"}`,
+    method: 'POST',
+    mode: 'cors',
+    credentials: 'omit',
+  })
+    .then(response => response.json())
+    .then(data => {
+      // data.resp.query.bool.filter are filters translated from SQL
+      // request.body.query.bool.filter[0] is the raw SQL which we discard, followed by user set filters
+      const filter = [...data.resp.query.bool.filter, ...request.body.query.bool.filter.slice(1)];
+      request.body = { ...request.body, ...data.resp };
+      request.body.query.bool.filter = filter;
+      // console.log(JSON.stringify(request.body, null, 2));
+      // console.log(request);
+      return request;
+    })
+    .then(DSLRequest =>
+      delayedFetch(DSLRequest, options, { es, config, esShardTimeout }, msToDelay)
+    );
 }
 
 /**
