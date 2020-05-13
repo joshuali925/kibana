@@ -32,39 +32,31 @@ export async function fetchSoon(
 ) {
   const msToDelay = config.get('courier:batchSearches') ? 50 : 0;
 
-  if (request.query[0].query.length === 0)
-    return delayedFetch(request, options, { es, config, esShardTimeout }, msToDelay);
-
-  return fetch('../api/sql_console/translate', {
-    headers: {
-      accept: 'application/json, text/plain, */*',
-      'accept-language': 'en-US,en;q=0.9',
-      'content-type': 'application/json;charset=UTF-8',
-      'kbn-version': '7.6.1',
-      'sec-fetch-dest': 'empty',
-      'sec-fetch-mode': 'cors',
-      'sec-fetch-site': 'same-origin',
-    },
-    referrerPolicy: 'no-referrer-when-downgrade',
-    body: `{"query":"${request.query[0].query}"}`,
-    method: 'POST',
-    mode: 'cors',
-    credentials: 'omit',
-  })
-    .then(response => response.json())
-    .then(data => {
-      // data.resp.query.bool.filter are filters translated from SQL
-      // request.body.query.bool.filter[0] is the raw SQL which we discard, followed by user set filters
-      const filter = [...data.resp.query.bool.filter, ...request.body.query.bool.filter.slice(1)];
-      request.body = { ...request.body, ...data.resp };
-      request.body.query.bool.filter = filter;
-      // console.log(JSON.stringify(request.body, null, 2));
-      // console.log(request);
-      return request;
-    })
-    .then(DSLRequest =>
-      delayedFetch(DSLRequest, options, { es, config, esShardTimeout }, msToDelay)
-    );
+  // SQLTODO remove this
+  // this translates SQL to DSL then sends it using Kibana's original fetch
+  // return fetch('../api/sql_console/translate', {
+  //   method: 'POST',
+  //   headers: {
+  //     'content-type': 'application/json;charset=UTF-8',
+  //     'kbn-version': '7.6.1',
+  //   },
+  //   body: `{"query":"${request.query[0].query}"}`,
+  // })
+  //   .then(response => response.json())
+  //   .then(data => {
+  //     // data.resp.query.bool.filter are filters translated from SQL
+  //     // request.body.query.bool.filter[0] is the raw SQL which we discard, followed by user set filters
+  //     const filter = [...data.resp.query.bool.filter, ...request.body.query.bool.filter.slice(1)];
+  //     request.body = { ...request.body, ...data.resp };
+  //     request.body.query.bool.filter = filter;
+  //     // console.log(JSON.stringify(request.body, null, 2));
+  //     // console.log(request);
+  //     return request;
+  //   })
+  //   .then(DSLRequest =>
+  //     delayedFetch(DSLRequest, options, { es, config, esShardTimeout }, msToDelay)
+  // );
+  return delayedFetch(request, options, { es, config, esShardTimeout }, msToDelay);
 }
 
 /**

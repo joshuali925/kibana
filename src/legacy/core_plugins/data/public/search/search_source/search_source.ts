@@ -86,6 +86,27 @@ const config = npSetup.core.uiSettings;
 
 export type ISearchSource = Pick<SearchSource, keyof SearchSource>;
 
+const useSQL: boolean = true;
+async function SQLFetch(
+  SQLQuery: string,
+  DefaultSQLQuery: string = 'select * from kibana_sample_data_flights',
+  api: string = '../api/sql_console/queryjson'
+) {
+  return fetch(api, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json;charset=UTF-8',
+      'kbn-version': '7.6.1',
+    },
+    body: `{"query":"${SQLQuery || DefaultSQLQuery}"}`,
+  })
+    .then(resp => resp.json())
+    .then(data => {
+      // console.log(JSON.parse(data.resp));
+      return JSON.parse(data.resp);
+    });
+}
+
 export class SearchSource {
   private id: string = _.uniqueId('data_source');
   private searchStrategyId?: string;
@@ -194,87 +215,32 @@ export class SearchSource {
   async fetch(options: FetchOptions = {}) {
     const $injector = await chrome.dangerouslyGetActiveInjector();
     const es = $injector.get('es') as ApiCaller;
-    // console.log(es);
 
     await this.requestIsStarting(options);
 
-    const searchRequest = this.flatten();
-
-    //     let SQL = searchRequest.query[0].query;
-    // let result = /select (.*) from kibana_sample_data_flights where ([^=\s]*).*["'](.*)["']/i.exec(SQL);
-    // if (result) {
-    //   searchRequest.body.query.bool.filter[0] = {
-    //     "bool": {
-    //       "must": [
-    //         {
-    //           "wildcard": {
-    //             [result[2]]: {
-    //               "wildcard": result[3].replace(/%/g, '*'),
-    //               "boost": 1.0
-    //             }
-    //           }
-    //         }
-    //       ],
-    //       "adjust_pure_negative": true,
-    //       "boost": 1.0
-    //     }
-    //   }
-    //   searchRequest.body._source = {
-    //     "includes": result[1].split(',').map((s) => s.trim()),
-    //     "excludes": []
-    //   }
-    // }
-
-    //     console.log(searchRequest);
-
-    // console.log("Original Request:", searchRequest);
-
-    // let SQL = searchRequest.query[0].query;
-
-    // fetch("http://localhost:5601/afk/api/sql_console/translate", {
-    //   "headers": {
-    //     "accept": "application/json, text/plain, */*",
-    //     "accept-language": "en-US,en;q=0.9",
-    //     "content-type": "application/json;charset=UTF-8",
-    //     "kbn-version": "7.6.1",
-    //     "sec-fetch-dest": "empty",
-    //     "sec-fetch-mode": "cors",
-    //     "sec-fetch-site": "same-origin"
-    //   },
-    //   "referrer": "http://localhost:5601/afk/app/sql-kibana",
-    //   "referrerPolicy": "no-referrer-when-downgrade",
-    //   "body": `{"query":"${SQL}"}`,
-    //   "method": "POST",
-    //   "mode": "cors",
-    //   "credentials": "omit"
-    // }).then(response => response.json())
-    //   .then(data => {
-    //     let filter = [...data.resp.query.bool.filter, ...searchRequest.body.query.bool.filter.slice(1)];
-    //     // searchRequest.body = { ...searchRequest.body, ...data.resp };
-    //     searchRequest.body.query.bool.filter = filter;
-    //     searchRequest.body._source = {
-    //       "includes": ["FlightNum", "Cancelled"],
-    //       "excludes": []
-    //     }
-    //     console.log("Filter:", filter)
-    //     console.log("Translated:", data)
-    //     console.log("Modified:", searchRequest);
-    //   });
+    const searchRequest = await this.flatten();
 
     this.history = [searchRequest];
 
-    const response = await fetchSoon(
-      searchRequest,
-      {
-        ...(this.searchStrategyId && { searchStrategyId: this.searchStrategyId }),
-        ...options,
-      },
-      { es, config, esShardTimeout }
-    );
+    // SQLTODO set default query for empty input
+    // also check if there's a better way to access raw query other than query[0].querySoon if using SQL
+    const response = useSQL
+      ? await SQLFetch(searchRequest.query[0].query)
+      : await fetchSoon(
+          searchRequest,
+          {
+            ...(this.searchStrategyId && { searchStrategyId: this.searchStrategyId }),
+            ...options,
+          },
+          { es, config, esShardTimeout }
+        );
 
     if (response.error) {
       throw new RequestFailure(null, response);
     }
+
+    // console.log('request:', searchRequest)
+    // console.log('response:', response)
 
     return response;
   }
@@ -441,7 +407,8 @@ export class SearchSource {
     }
 
     const esQueryConfigs = esQuery.getEsQueryConfig(config);
-    body.query = esQuery.buildEsQuery(index, query, filters, esQueryConfigs);
+    // SQLTODO remove 'useSQL' once we can change 'language'
+    body.query = esQuery.buildEsQuery(index, query, filters, esQueryConfigs, useSQL);
 
     if (highlightAll && body.query) {
       body.highlight = getHighlightRequest(body.query, config.get('doc_table:highlight'));
