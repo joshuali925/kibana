@@ -48,25 +48,21 @@ export function buildEsQuery(
     allowLeadingWildcards: false,
     queryStringOptions: {},
     ignoreFilterIfFieldNotInIndex: false,
-  },
-  useSQL: boolean = false
+  }
 ) {
   queries = Array.isArray(queries) ? queries : [queries];
   filters = Array.isArray(filters) ? filters : [filters];
 
   const validQueries = queries.filter(query => has(query, 'query'));
   const queriesByLanguage = groupBy(validQueries, 'language');
-  // SQLTODO remove 'useSQL' once we can change 'language'
-  // (queriesByLanguage.kuery become queriesByLanguage.sql)
-  // if using SQL we do not need to build query
   const kueryQuery = buildQueryFromKuery(
     indexPattern,
-    (!useSQL && queriesByLanguage.kuery) || [],
+    queriesByLanguage.kuery,
     config.allowLeadingWildcards,
     config.dateFormatTZ
   );
   const luceneQuery = buildQueryFromLucene(
-    (!useSQL && queriesByLanguage.lucene) || [],
+    queriesByLanguage.lucene,
     config.queryStringOptions,
     config.dateFormatTZ
   );

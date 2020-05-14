@@ -86,8 +86,7 @@ const config = npSetup.core.uiSettings;
 
 export type ISearchSource = Pick<SearchSource, keyof SearchSource>;
 
-const useSQL: boolean = true;
-async function SQLFetch(
+function SQLFetch(
   SQLQuery: string,
   DefaultSQLQuery: string = 'select * from kibana_sample_data_flights',
   api: string = '../api/sql_console/queryjson'
@@ -223,17 +222,19 @@ export class SearchSource {
     this.history = [searchRequest];
 
     // SQLTODO set default query for empty input
-    // also check if there's a better way to access raw query other than query[0].querySoon if using SQL
-    const response = useSQL
-      ? await SQLFetch(searchRequest.query[0].query)
-      : await fetchSoon(
-          searchRequest,
-          {
-            ...(this.searchStrategyId && { searchStrategyId: this.searchStrategyId }),
-            ...options,
-          },
-          { es, config, esShardTimeout }
-        );
+    // also check if there's a better way to access raw query other than query[0].query
+    const inputQuery = searchRequest.query[0];
+    const response =
+      inputQuery.language === 'sql'
+        ? await SQLFetch(inputQuery.query)
+        : await fetchSoon(
+            searchRequest,
+            {
+              ...(this.searchStrategyId && { searchStrategyId: this.searchStrategyId }),
+              ...options,
+            },
+            { es, config, esShardTimeout }
+          );
 
     if (response.error) {
       throw new RequestFailure(null, response);
@@ -407,8 +408,7 @@ export class SearchSource {
     }
 
     const esQueryConfigs = esQuery.getEsQueryConfig(config);
-    // SQLTODO remove 'useSQL' once we can change 'language'
-    body.query = esQuery.buildEsQuery(index, query, filters, esQueryConfigs, useSQL);
+    body.query = esQuery.buildEsQuery(index, query, filters, esQueryConfigs);
 
     if (highlightAll && body.query) {
       body.highlight = getHighlightRequest(body.query, config.get('doc_table:highlight'));

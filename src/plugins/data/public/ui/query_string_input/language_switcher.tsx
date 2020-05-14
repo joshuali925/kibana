@@ -49,6 +49,9 @@ export function QueryLanguageSwitcher(props: Props) {
   const kqlLabel = (
     <FormattedMessage id="data.query.queryBar.kqlLanguageName" defaultMessage="KQL" />
   );
+  const sqlLabel = (
+    <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="SQL" />
+  );
   const kqlFullName = (
     <FormattedMessage
       id="data.query.queryBar.kqlFullLanguageName"
@@ -62,7 +65,7 @@ export function QueryLanguageSwitcher(props: Props) {
       onClick={() => setIsPopoverOpen(!isPopoverOpen)}
       className="euiFormControlLayout__append"
     >
-      {props.language === 'lucene' ? luceneLabel : kqlLabel}
+      {props.language === 'lucene' ? luceneLabel : props.language === 'sql' ? sqlLabel : kqlLabel}
     </EuiButtonEmpty>
   );
 
@@ -122,6 +125,28 @@ export function QueryLanguageSwitcher(props: Props) {
                 props.onSelectLanguage(newLanguage);
               }}
               data-test-subj="languageToggle"
+            />
+          </EuiFormRow>
+        </EuiForm>
+
+        <EuiForm>
+          <EuiFormRow label={'SQL?'}>
+            <EuiSwitch
+              id="SQLqueryEnhancementOptIn"
+              name="SQLpopswitch"
+              label={
+                props.language === 'sql' ? (
+                  <FormattedMessage id="data.query.queryBar.kqlOnLabel" defaultMessage="On" />
+                ) : (
+                  <FormattedMessage id="data.query.queryBar.kqlOffLabel" defaultMessage="Off" />
+                )
+              }
+              checked={props.language === 'sql'}
+              onChange={() => {
+                const newLanguage = props.language === 'sql' ? 'kuery' : 'sql';
+                props.onSelectLanguage(newLanguage);
+              }}
+              data-test-subj="SQLlanguageToggle"
             />
           </EuiFormRow>
         </EuiForm>
