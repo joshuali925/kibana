@@ -83,6 +83,23 @@ import { getHighlightRequest } from '../../../common/field_formats';
 
 export type ISearchSource = Pick<SearchSource, keyof SearchSource>;
 
+function SQLFetch(
+  SQLQuery: string,
+  DefaultSQLQuery: string = 'select * from kibana_sample_data_flights',
+  api: string = '../api/sql_console/queryjson'
+) {
+  return fetch(api, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json;charset=UTF-8',
+      'kbn-version': '7.7.0',
+    },
+    body: `{"query":"${SQLQuery || DefaultSQLQuery}"}`,
+  })
+    .then(resp => resp.json())
+    .then(json => JSON.parse(json.resp));
+}
+
 export class SearchSource {
   private id: string = _.uniqueId('data_source');
   private searchStrategyId?: string;
@@ -195,18 +212,23 @@ export class SearchSource {
     this.history = [searchRequest];
 
     const esShardTimeout = getInjectedMetadata().getInjectedVar('esShardTimeout') as number;
-    const response = await fetchSoon(
-      searchRequest,
-      {
-        ...(this.searchStrategyId && { searchStrategyId: this.searchStrategyId }),
-        ...options,
-      },
-      {
-        searchService: getSearchService(),
-        config: getUiSettings(),
-        esShardTimeout,
-      }
-    );
+
+    const inputQuery = searchRequest.query[0];
+    const response =
+      inputQuery.language === 'sql'
+        ? await SQLFetch(inputQuery.query)
+        : await fetchSoon(
+            searchRequest,
+            {
+              ...(this.searchStrategyId && { searchStrategyId: this.searchStrategyId }),
+              ...options,
+            },
+            {
+              searchService: getSearchService(),
+              config: getUiSettings(),
+              esShardTimeout,
+            }
+          );
 
     if (response.error) {
       throw new RequestFailure(null, response);
