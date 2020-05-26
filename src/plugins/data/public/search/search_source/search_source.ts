@@ -86,7 +86,7 @@ export type ISearchSource = Pick<SearchSource, keyof SearchSource>;
 function SQLFetch(
   SQLQuery: string,
   DefaultSQLQuery: string = 'select * from kibana_sample_data_flights',
-  api: string = '../api/sql_console/queryjson'
+  api: string = '../api/sql_console/query'
 ) {
   return fetch(api, {
     method: 'POST',
@@ -97,7 +97,32 @@ function SQLFetch(
     body: `{"query":"${SQLQuery || DefaultSQLQuery}"}`,
   })
     .then(resp => resp.json())
-    .then(json => JSON.parse(json.resp));
+    .then(json => JSON.parse(json.resp))
+    .then(jdbc => toJSON(jdbc));
+}
+
+async function toJSON(JDBCResult: any) {
+  if (JDBCResult?.status !== 200) return null;
+
+  const hits = [];
+  JDBCResult.datarows.forEach((row, i) => {
+    hits.push({
+      _id: Math.random()
+        .toString(36)
+        .substring(2),
+      _source: {},
+    });
+    row.forEach((value, j) => {
+      hits[i]._source[JDBCResult.schema[j].name] = value;
+    });
+  });
+
+  return {
+    hits: {
+      total: JDBCResult.total,
+      hits,
+    },
+  };
 }
 
 export class SearchSource {
