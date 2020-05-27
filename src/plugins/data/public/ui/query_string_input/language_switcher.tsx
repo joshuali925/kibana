@@ -50,7 +50,7 @@ export function QueryLanguageSwitcher(props: Props) {
     <FormattedMessage id="data.query.queryBar.kqlLanguageName" defaultMessage="KQL" />
   );
   const sqlLabel = (
-    <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="SQL" />
+    <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="PPL" />
   );
   const kqlFullName = (
     <FormattedMessage
@@ -130,7 +130,7 @@ export function QueryLanguageSwitcher(props: Props) {
         </EuiForm>
 
         <EuiForm>
-          <EuiFormRow label={'SQL?'}>
+          <EuiFormRow label={'PPL'}>
             <EuiSwitch
               id="SQLqueryEnhancementOptIn"
               name="SQLpopswitch"

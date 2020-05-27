@@ -88,8 +88,8 @@ export type ISearchSource = Pick<SearchSource, keyof SearchSource>;
 
 function SQLFetch(
   SQLQuery: string,
-  DefaultSQLQuery: string = 'select * from kibana_sample_data_flights',
-  api: string = '../api/sql_console/query'
+  DefaultSQLQuery: string = 'source=.kibana',
+  api: string = 'http://localhost:9200/_opendistro/_ppl'
 ) {
   return fetch(api, {
     method: 'POST',
@@ -100,26 +100,22 @@ function SQLFetch(
     body: `{"query":"${SQLQuery || DefaultSQLQuery}"}`,
   })
     .then(resp => resp.json())
-    .then(json => JSON.parse(json.resp))
     .then(jdbc => {
       // console.log(jdbc);
-      // console.log(toJSON(jdbc));
       return toJSON(jdbc);
     });
 }
 
 async function toJSON(JDBCResult: any) {
-  if (JDBCResult?.status !== 200) return null;
-
   const hits: Array<{ _id: string; _source: {} }> = [];
-  JDBCResult.datarows.forEach((row: any[], i: number) => {
+  JDBCResult.datarows.forEach((row: any, i: number) => {
     hits.push({
       _id: Math.random()
         .toString(36)
         .substring(2),
       _source: {},
     });
-    row.forEach((value: string, j: number) => {
+    row.row.forEach((value: string, j: number) => {
       hits[i]._source[JDBCResult.schema[j].name] = value;
     });
   });
@@ -265,8 +261,8 @@ export class SearchSource {
       throw new RequestFailure(null, response);
     }
 
-    // console.log('request:', searchRequest)
-    // console.log('response:', response)
+    // console.log('request:', searchRequest);
+    // console.log('response:', response);
 
     return response;
   }
