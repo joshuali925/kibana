@@ -31,6 +31,7 @@ import {
 } from '@elastic/eui';
 import { FormattedMessage } from '@kbn/i18n/react';
 import React, { useState } from 'react';
+import { EuiRadioGroup } from '@elastic/eui';
 import { useKibana } from '../../../../kibana_react/public';
 
 interface Props {
@@ -52,6 +53,9 @@ export function QueryLanguageSwitcher(props: Props) {
   const sqlLabel = (
     <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="SQL" />
   );
+  const pplLabel = (
+    <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="PPL" />
+  );
   const kqlFullName = (
     <FormattedMessage
       id="data.query.queryBar.kqlFullLanguageName"
@@ -66,7 +70,7 @@ export function QueryLanguageSwitcher(props: Props) {
       className="euiFormControlLayout__append"
       data-test-subj={'switchQueryLanguageButton'}
     >
-      {props.language === 'lucene' ? luceneLabel : props.language === 'sql' ? sqlLabel : kqlLabel}
+      {props.language === 'kuery' ? 'KQL' : props.language.toUpperCase()}
     </EuiButtonEmpty>
   );
 
@@ -108,7 +112,34 @@ export function QueryLanguageSwitcher(props: Props) {
 
         <EuiSpacer size="m" />
 
-        <EuiForm>
+        <EuiRadioGroup
+          options={[
+            {
+              id: 'kuery',
+              label: 'KQL',
+            },
+            {
+              id: 'lucene',
+              label: 'LUCENE',
+            },
+            {
+              id: 'sql',
+              label: 'SQL',
+            },
+            {
+              id: 'ppl',
+              label: 'PPL',
+            },
+          ]}
+          idSelected={props.language}
+          onChange={id => {
+            props.onSelectLanguage(id);
+          }}
+          legend={{
+            children: 'Select query language',
+          }}
+        />
+        {/* <EuiForm>
           <EuiFormRow label={kqlFullName}>
             <EuiSwitch
               id="queryEnhancementOptIn"
@@ -149,7 +180,7 @@ export function QueryLanguageSwitcher(props: Props) {
               data-test-subj="SQLlanguageToggle"
             />
           </EuiFormRow>
-        </EuiForm>
+        </EuiForm> */}
       </div>
     </EuiPopover>
   );

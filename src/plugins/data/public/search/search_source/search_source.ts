@@ -85,7 +85,7 @@ export type ISearchSource = Pick<SearchSource, keyof SearchSource>;
 
 function SQLFetch(
   SQLQuery: string,
-  DefaultSQLQuery: string = 'select * from kibana_sample_data_flights',
+  DefaultSQLQuery: string = 'select * from .kibana',
   api: string = '../api/sql_console/query'
 ) {
   return fetch(api, {
@@ -101,18 +101,34 @@ function SQLFetch(
     .then(jdbc => toJSON(jdbc));
 }
 
-async function toJSON(JDBCResult: any) {
-  if (JDBCResult?.status !== 200) return null;
+function PPLFetch(
+  SQLQuery: string,
+  DefaultSQLQuery: string = 'source=.kibana',
+  api: string = 'http://localhost:9200/_opendistro/_ppl'
+) {
+  return fetch(api, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json;charset=UTF-8',
+      'kbn-version': '7.7.0',
+    },
+    body: `{"query":"${SQLQuery || DefaultSQLQuery}"}`,
+  })
+    .then(resp => resp.json())
+    .then(jdbc => toJSON(jdbc));
+}
 
-  const hits = [];
-  JDBCResult.datarows.forEach((row, i) => {
+async function toJSON(JDBCResult: any) {
+  const hits: Array<{ _id: string; _source: {} }> = [];
+  JDBCResult.datarows.forEach((row: any, i: number) => {
     hits.push({
       _id: Math.random()
         .toString(36)
         .substring(2),
       _source: {},
     });
-    row.forEach((value, j) => {
+    if (row.row) row = row.row;
+    row.forEach((value: string, j: number) => {
       hits[i]._source[JDBCResult.schema[j].name] = value;
     });
   });
@@ -242,6 +258,8 @@ export class SearchSource {
     const response =
       inputQuery.language === 'sql'
         ? await SQLFetch(inputQuery.query)
+        : inputQuery.language === 'ppl'
+        ? await PPLFetch(inputQuery.query)
         : await fetchSoon(
             searchRequest,
             {
