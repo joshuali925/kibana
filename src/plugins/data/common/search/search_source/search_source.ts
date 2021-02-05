@@ -260,10 +260,14 @@ export class SearchSource {
     await this.requestIsStarting(options);
 
     const searchRequest = await this.flatten();
+    const queryLanguage = searchRequest.query?.[0].language;
     this.history = [searchRequest];
 
     let response;
-    if (getConfig(UI_SETTINGS.COURIER_BATCH_SEARCHES)) {
+    if (
+      getConfig(UI_SETTINGS.COURIER_BATCH_SEARCHES) &&
+      (queryLanguage === 'kuery' || queryLanguage === 'lucene')
+    ) {
       response = await this.legacyFetch(searchRequest, options);
     } else {
       response = await this.fetchSearch(searchRequest, options);
@@ -319,9 +323,18 @@ export class SearchSource {
       getConfig,
     });
 
-    return search({ params, indexType: searchRequest.indexType }, options).then(({ rawResponse }) =>
-      onResponse(searchRequest, rawResponse)
-    );
+    let query = {};
+    const queryLanguage = searchRequest.query[0]?.language;
+    if (queryLanguage === 'sql' || queryLanguage === 'ppl') {
+      query = {
+        query: searchRequest.query,
+      };
+    }
+
+    return search(
+      { params, indexType: searchRequest.indexType, ...query },
+      options
+    ).then(({ rawResponse }) => onResponse(searchRequest, rawResponse));
   }
 
   /**

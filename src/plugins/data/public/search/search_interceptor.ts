@@ -28,6 +28,7 @@ import {
   IKibanaSearchResponse,
   ISearchOptions,
   ES_SEARCH_STRATEGY,
+  SearchRequest,
 } from '../../common';
 import { SearchUsageCollector } from './collectors';
 import { SearchTimeoutError, PainlessError, isPainlessError, TimeoutErrorMode } from './errors';
@@ -114,6 +115,14 @@ export class SearchInterceptor {
     strategy?: string
   ): Observable<IKibanaSearchResponse> {
     const { id, ...searchRequest } = request;
+
+    const queryLanguage = (searchRequest as SearchRequest).query?.[0].language;
+    if (queryLanguage === 'sql') {
+      return this.runSQLSearch(searchRequest);
+    } else if (queryLanguage === 'ppl') {
+      return this.runPPLSearch(searchRequest);
+    }
+
     const path = trimEnd(`/internal/search/${strategy || ES_SEARCH_STRATEGY}/${id || ''}`, '/');
     const body = JSON.stringify(searchRequest);
     return from(
@@ -124,6 +133,79 @@ export class SearchInterceptor {
         signal,
       })
     );
+  }
+
+  /**
+   * @internal
+   */
+  private runSQLSearch(searchRequest: SearchRequest): Observable<IKibanaSearchResponse> {
+    const query = searchRequest.query[0].query || 'select * from kibana_sample_data_flights';
+    return from(
+      this.deps.http
+        .fetch({
+          method: 'POST',
+          path: '/api/sql_console/sqlquery',
+          body: `{"query":"${query}"}`,
+        })
+        .then((response) => JSON.parse(response.data.resp))
+        .then((jdbc) => this.toJSON(jdbc))
+        .then((json) => ({
+          isPartial: false,
+          isRunning: false,
+          loaded: 1,
+          total: 1,
+          rawResponse: json,
+        }))
+    );
+  }
+
+  /**
+   * @internal
+   */
+  private runPPLSearch(searchRequest: SearchRequest): Observable<IKibanaSearchResponse> {
+    const query = searchRequest.query[0].query || 'source=kibana_sample_data_flights';
+    return from(
+      this.deps.http
+        .fetch({
+          method: 'POST',
+          path: '/api/sql_console/pplquery',
+          body: `{"query":"${query}"}`,
+        })
+        .then((response) => JSON.parse(response.data.resp))
+        .then((jdbc) => this.toJSON(jdbc))
+        .then((json) => ({
+          isPartial: false,
+          isRunning: false,
+          loaded: 1,
+          total: 1,
+          rawResponse: json,
+        }))
+    );
+  }
+
+  /*
+   * @returns discover compatible JSON response constructed from SQL/PPL JDBC response
+   * @internal
+   */
+  private toJSON(jdbc: {
+    schema: Array<{ name: string; type: string }>;
+    datarows: Array<[value: any]>;
+    total: number;
+    size: number;
+    status: number;
+  }) {
+    return {
+      hits: {
+        total: jdbc.total,
+        hits: jdbc.datarows.map((row: [value: any], i: number) => ({
+          _id: Math.random().toString(36).substring(2),
+          _source: row.reduce((source: { [name: string]: any }, value: string, j: number) => {
+            source[jdbc.schema[j].name] = value;
+            return source;
+          }, {}),
+        })),
+      },
+    };
   }
 
   /**

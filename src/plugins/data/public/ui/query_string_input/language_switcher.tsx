@@ -24,6 +24,7 @@ import {
   EuiLink,
   EuiPopover,
   EuiPopoverTitle,
+  EuiRadioGroup,
   EuiSpacer,
   EuiSwitch,
   EuiText,
@@ -49,6 +50,12 @@ export function QueryLanguageSwitcher(props: Props) {
   const kqlLabel = (
     <FormattedMessage id="data.query.queryBar.kqlLanguageName" defaultMessage="KQL" />
   );
+  const sqlLabel = (
+    <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="SQL" />
+  );
+  const pplLabel = (
+    <FormattedMessage id="data.query.queryBar.sqlLanguageName" defaultMessage="PPL" />
+  );
   const kqlFullName = (
     <FormattedMessage
       id="data.query.queryBar.kqlFullLanguageName"
@@ -63,7 +70,13 @@ export function QueryLanguageSwitcher(props: Props) {
       className="euiFormControlLayout__append kqlQueryBar__languageSwitcherButton"
       data-test-subj={'switchQueryLanguageButton'}
     >
-      {props.language === 'lucene' ? luceneLabel : kqlLabel}
+      {props.language === 'lucene'
+        ? luceneLabel
+        : props.language === 'kuery'
+        ? kqlLabel
+        : props.language === 'sql'
+        ? sqlLabel
+        : pplLabel}
     </EuiButtonEmpty>
   );
 
@@ -106,27 +119,31 @@ export function QueryLanguageSwitcher(props: Props) {
 
         <EuiSpacer size="m" />
 
-        <EuiForm>
-          <EuiFormRow label={kqlFullName}>
-            <EuiSwitch
-              id="queryEnhancementOptIn"
-              name="popswitch"
-              label={
-                props.language === 'kuery' ? (
-                  <FormattedMessage id="data.query.queryBar.kqlOnLabel" defaultMessage="On" />
-                ) : (
-                  <FormattedMessage id="data.query.queryBar.kqlOffLabel" defaultMessage="Off" />
-                )
-              }
-              checked={props.language === 'kuery'}
-              onChange={() => {
-                const newLanguage = props.language === 'lucene' ? 'kuery' : 'lucene';
-                props.onSelectLanguage(newLanguage);
-              }}
-              data-test-subj="languageToggle"
-            />
-          </EuiFormRow>
-        </EuiForm>
+        <EuiRadioGroup
+          options={[
+            {
+              id: 'kuery',
+              label: 'KQL',
+            },
+            {
+              id: 'lucene',
+              label: 'LUCENE',
+            },
+            {
+              id: 'sql',
+              label: 'SQL',
+            },
+            {
+              id: 'ppl',
+              label: 'PPL',
+            },
+          ]}
+          idSelected={props.language}
+          onChange={(id) => props.onSelectLanguage(id)}
+          legend={{
+            children: 'Select query language',
+          }}
+        />
       </div>
     </EuiPopover>
   );
