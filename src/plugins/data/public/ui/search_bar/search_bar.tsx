@@ -196,6 +196,8 @@ class SearchBarUI extends Component<SearchBarProps, State> {
 
   private shouldRenderFilterBar() {
     return (
+      this.props.query?.language !== 'sql' &&
+      this.props.query?.language !== 'ppl' &&
       this.props.showFilterBar &&
       this.props.filters &&
       this.props.indexPatterns &&
