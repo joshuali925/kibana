@@ -21,6 +21,7 @@ import { get, trimEnd, debounce } from 'lodash';
 import { BehaviorSubject, throwError, timer, defer, from, Observable, NEVER } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
 import { CoreStart, CoreSetup, ToastsSetup } from 'kibana/public';
+import moment from 'moment';
 import {
   getCombinedSignal,
   AbortError,
@@ -40,6 +41,20 @@ export interface SearchInterceptorDeps {
   startServices: Promise<[CoreStart, any, unknown]>;
   toasts: ToastsSetup;
   usageCollector?: SearchUsageCollector;
+}
+
+interface DateHistogramParams {
+  timeField: string;
+  fixedInterval: string;
+  dateHistogramAggsKey: string;
+}
+
+interface JdbcType {
+  schema: Array<{ name: string; type: string }>;
+  datarows: any[][];
+  total: number;
+  size: number;
+  status: number;
 }
 
 export class SearchInterceptor {
@@ -117,10 +132,26 @@ export class SearchInterceptor {
     const { id, ...searchRequest } = request;
 
     const queryLanguage = (searchRequest as SearchRequest).query?.[0].language;
-    if (queryLanguage === 'sql') {
-      return this.runSQLSearch(searchRequest);
-    } else if (queryLanguage === 'ppl') {
-      return this.runPPLSearch(searchRequest);
+    if (queryLanguage === 'sql' || queryLanguage === 'ppl') {
+      const aggs = searchRequest.params?.body.aggs;
+      const dateHistogramAggsKey = Object.keys(aggs).find(
+        (agg: any) => aggs[agg].date_histogram !== undefined
+      );
+      let dateHistogramParams: DateHistogramParams | undefined;
+      if (dateHistogramAggsKey) {
+        const { field: timeField, fixed_interval: fixedInterval } = aggs[
+          dateHistogramAggsKey
+        ].date_histogram;
+        dateHistogramParams = {
+          dateHistogramAggsKey,
+          timeField,
+          fixedInterval,
+        };
+      }
+
+      return queryLanguage === 'sql'
+        ? this.runSQLSearch(searchRequest, dateHistogramParams)
+        : this.runPPLSearch(searchRequest);
     }
 
     const path = trimEnd(`/internal/search/${strategy || ES_SEARCH_STRATEGY}/${id || ''}`, '/');
@@ -138,24 +169,32 @@ export class SearchInterceptor {
   /**
    * @internal
    */
-  private runSQLSearch(searchRequest: SearchRequest): Observable<IKibanaSearchResponse> {
-    const query = searchRequest.query[0].query || 'select * from kibana_sample_data_flights';
+  private runSQLSearch(
+    searchRequest: SearchRequest,
+    dateHistogramParams?: DateHistogramParams
+  ): Observable<IKibanaSearchResponse> {
+    const query = searchRequest.query[0].query || `select * from ${searchRequest.params.index}`;
+    const dateFormat = `'%Y-%m-%d'`;
+    const dateHistogramQuery = `select DATE_FORMAT(timestamp, ${dateFormat}), count(1) from ${searchRequest.params.index} group by DATE_FORMAT(timestamp, ${dateFormat})`;
+
     return from(
-      this.deps.http
-        .fetch({
-          method: 'POST',
-          path: '/api/sql_console/sqlquery',
-          body: `{"query":"${query}"}`,
-        })
-        .then((response) => JSON.parse(response.data.resp))
-        .then((jdbc) => this.toJSON(jdbc))
-        .then((json) => ({
-          isPartial: false,
-          isRunning: false,
-          loaded: 1,
-          total: 1,
-          rawResponse: json,
-        }))
+      this.querySQLPPL(dateHistogramQuery, 'sql').then((aggs: JdbcType) => {
+        const histogram = this.aggsToDateHistogram(aggs);
+        return this.querySQLPPL(query, 'sql')
+          .then((jdbc) => this.jdbcToJson(jdbc))
+          .then((json) => {
+            return {
+              rawResponse: {
+                ...json,
+                aggregations: {
+                  [dateHistogramParams?.dateHistogramAggsKey || '2']: {
+                    buckets: histogram,
+                  },
+                },
+              },
+            };
+          });
+      })
     );
   }
 
@@ -163,41 +202,48 @@ export class SearchInterceptor {
    * @internal
    */
   private runPPLSearch(searchRequest: SearchRequest): Observable<IKibanaSearchResponse> {
-    const query = searchRequest.query[0].query || 'source=kibana_sample_data_flights';
+    const query = searchRequest.query[0].query || `source=${searchRequest.params.index}`;
     return from(
-      this.deps.http
-        .fetch({
-          method: 'POST',
-          path: '/api/sql_console/pplquery',
-          body: `{"query":"${query}"}`,
-        })
-        .then((response) => JSON.parse(response.data.resp))
-        .then((jdbc) => this.toJSON(jdbc))
+      this.querySQLPPL(query, 'ppl')
+        .then((jdbc) => this.jdbcToJson(jdbc))
         .then((json) => ({
-          isPartial: false,
-          isRunning: false,
-          loaded: 1,
-          total: 1,
           rawResponse: json,
         }))
     );
+  }
+
+  private async querySQLPPL(query: string, language: string): Promise<JdbcType> {
+    return this.deps.http
+      .fetch({
+        method: 'POST',
+        path: `/api/sql_console/${language}query`,
+        body: `{"query":"${query}"}`,
+      })
+      .then((response) => JSON.parse(response.data.resp));
+  }
+
+  private aggsToDateHistogram(
+    aggs: JdbcType
+  ): Array<{ key_as_string: string; key: number; doc_count: number }> {
+    return aggs.datarows.map(([timeString, count]: any[]) => {
+      const datetime = moment(timeString);
+      return {
+        key_as_string: datetime.toISOString(),
+        key: datetime.valueOf(),
+        doc_count: count,
+      };
+    });
   }
 
   /*
    * @returns discover compatible JSON response constructed from SQL/PPL JDBC response
    * @internal
    */
-  private toJSON(jdbc: {
-    schema: Array<{ name: string; type: string }>;
-    datarows: Array<[value: any]>;
-    total: number;
-    size: number;
-    status: number;
-  }) {
+  private jdbcToJson(jdbc: JdbcType) {
     return {
       hits: {
         total: jdbc.total,
-        hits: jdbc.datarows.map((row: [value: any], i: number) => ({
+        hits: jdbc.datarows.map((row: any[], i: number) => ({
           _id: Math.random().toString(36).substring(2),
           _source: row.reduce((source: { [name: string]: any }, value: string, j: number) => {
             source[jdbc.schema[j].name] = value;
