@@ -43,10 +43,15 @@ export interface SearchInterceptorDeps {
   usageCollector?: SearchUsageCollector;
 }
 
-interface DateHistogramParams {
+interface SearchParams {
   timeField: string;
-  fixedInterval: string;
+  histogramInterval: string;
   dateHistogramAggsKey: string;
+  timeFilter?: {
+    gte: string;
+    lte: string;
+    format?: string;
+  };
 }
 
 interface JdbcType {
@@ -133,25 +138,28 @@ export class SearchInterceptor {
 
     const queryLanguage = (searchRequest as SearchRequest).query?.[0].language;
     if (queryLanguage === 'sql' || queryLanguage === 'ppl') {
-      const aggs = searchRequest.params?.body.aggs;
-      const dateHistogramAggsKey = Object.keys(aggs).find(
-        (agg: any) => aggs[agg].date_histogram !== undefined
-      );
-      let dateHistogramParams: DateHistogramParams | undefined;
-      if (dateHistogramAggsKey) {
-        const { field: timeField, fixed_interval: fixedInterval } = aggs[
-          dateHistogramAggsKey
-        ].date_histogram;
-        dateHistogramParams = {
-          dateHistogramAggsKey,
-          timeField,
-          fixedInterval,
-        };
-      }
+      const aggs = searchRequest.params?.body?.aggs;
+      const dateHistogramAggsKey =
+        aggs && Object.keys(aggs).find((agg: any) => aggs[agg].date_histogram !== undefined);
+
+      const dateHistogramDsl = dateHistogramAggsKey && aggs[dateHistogramAggsKey].date_histogram;
+
+      const timeFilterRangeDsl = searchRequest.params?.body.query.bool.filter?.find(
+        (filter: any) => filter.range !== undefined
+      )?.range;
+      const timeFilter =
+        timeFilterRangeDsl && timeFilterRangeDsl[Object.keys(timeFilterRangeDsl)[0]];
+
+      let searchParams: SearchParams = {
+        dateHistogramAggsKey,
+        timeField: timeFilterRangeDsl && Object.keys(timeFilterRangeDsl)[0],
+        histogramInterval: dateHistogramDsl?.fixed_interval || dateHistogramDsl?.calendar_interval,
+        timeFilter,
+      };
 
       return queryLanguage === 'sql'
-        ? this.runSQLSearch(searchRequest, dateHistogramParams)
-        : this.runPPLSearch(searchRequest);
+        ? this.runSQLSearch(searchRequest, searchParams)
+        : this.runPPLSearch(searchRequest, searchParams);
     }
 
     const path = trimEnd(`/internal/search/${strategy || ES_SEARCH_STRATEGY}/${id || ''}`, '/');
@@ -171,12 +179,30 @@ export class SearchInterceptor {
    */
   private runSQLSearch(
     searchRequest: SearchRequest,
-    dateHistogramParams?: DateHistogramParams
+    searchParams: SearchParams
   ): Observable<IKibanaSearchResponse> {
+    console.log('dateHistogramParams', searchParams);
     const query = searchRequest.query[0].query || `select * from ${searchRequest.params.index}`;
-    const dateFormat = `'%Y-%m-%d'`;
-    const dateHistogramQuery = `select DATE_FORMAT(timestamp, ${dateFormat}), count(1) from ${searchRequest.params.index} group by DATE_FORMAT(timestamp, ${dateFormat})`;
+    const sqlDateFormat = 'YYYY-MM-DD HH:mm:ss.SSSSSS';
+    const timeFilterQuery = searchParams.timeFilter
+      ? `FILTER (WHERE ${searchParams.timeField} >= timestamp('${moment(
+          searchParams.timeFilter.gte
+        ).format(sqlDateFormat)}') and ${searchParams.timeField} <= timestamp('${moment(
+          searchParams.timeFilter.lte
+        ).format(sqlDateFormat)}'))`
+      : '';
 
+    const histogramDateFormat = this.getHistogramDateFormat(searchParams.histogramInterval);
+    const filteredQuery = `from (${query}) as f ${timeFilterQuery}`;
+    console.log('filteredQuery', filteredQuery);
+
+    const dateHistogramQuery = `select DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}'), count(1) ${timeFilterQuery} as filtered from ${searchRequest.params.index} group by DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}')`;
+
+    // const dateHistogramQuery = `select DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}'), count(1) from kibana_sample_data_flights ${timeFilterQuery} group by DATE_FORMAT(timestamp, '${histogramDateFormat}')`;
+
+    // const dateHistogramQuery = `select DATE_FORMAT(${searchParams.timeField}, '${dateFormat}'), count(1) from ${searchRequest.params.index} group by DATE_FORMAT(${searchParams.timeField}, '${dateFormat}')`;
+
+    console.log('dateHistogramQuery', dateHistogramQuery);
     return from(
       this.querySQLPPL(dateHistogramQuery, 'sql').then((aggs: JdbcType) => {
         const histogram = this.aggsToDateHistogram(aggs);
@@ -187,7 +213,7 @@ export class SearchInterceptor {
               rawResponse: {
                 ...json,
                 aggregations: {
-                  [dateHistogramParams?.dateHistogramAggsKey || '2']: {
+                  [searchParams.dateHistogramAggsKey]: {
                     buckets: histogram,
                   },
                 },
@@ -201,38 +227,106 @@ export class SearchInterceptor {
   /**
    * @internal
    */
-  private runPPLSearch(searchRequest: SearchRequest): Observable<IKibanaSearchResponse> {
-    const query = searchRequest.query[0].query || `source=${searchRequest.params.index}`;
+  private runPPLSearch(
+    searchRequest: SearchRequest,
+    searchParams: SearchParams
+  ): Observable<IKibanaSearchResponse> {
+    let query = searchRequest.query[0].query || `source=${searchRequest.params.index}`;
+    const sqlDateFormat = 'YYYY-MM-DD HH:mm:ss.SSSSSS';
+    const timeFilterQuery = searchParams.timeFilter
+      ? ` | WHERE ${searchParams.timeField} >= timestamp('${moment(
+          searchParams.timeFilter.gte
+        ).format(sqlDateFormat)}') and ${searchParams.timeField} <= timestamp('${moment(
+          searchParams.timeFilter.lte
+        ).format(sqlDateFormat)}')`
+      : '';
+    query = query + timeFilterQuery;
+
+    if (!searchParams.dateHistogramAggsKey) {
+      return from(
+        this.querySQLPPL(query, 'ppl')
+          .then((jdbc) => this.jdbcToJson(jdbc))
+          .then((json) => ({ rawResponse: json }))
+      );
+    }
+
+    const histogramDateFormat = this.getHistogramDateFormat(searchParams.histogramInterval);
+    const dateHistogramQuery =
+      query +
+      timeFilterQuery +
+      ` | eval span=DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}') | stats count() by span`;
+
+    console.log('dateHistogramQuery', dateHistogramQuery);
+    console.log('query', query);
+
     return from(
-      this.querySQLPPL(query, 'ppl')
-        .then((jdbc) => this.jdbcToJson(jdbc))
-        .then((json) => ({
-          rawResponse: json,
-        }))
+      this.querySQLPPL(dateHistogramQuery, 'ppl').then((aggs: JdbcType) => {
+        const histogram = this.aggsToDateHistogram(aggs, 1, 0);
+        return this.querySQLPPL(query, 'ppl')
+          .then((jdbc) => this.jdbcToJson(jdbc))
+          .then((json) => {
+            return {
+              rawResponse: {
+                ...json,
+                aggregations: {
+                  [searchParams.dateHistogramAggsKey]: {
+                    buckets: histogram,
+                  },
+                },
+              },
+            };
+          });
+      })
     );
   }
 
-  private async querySQLPPL(query: string, language: string): Promise<JdbcType> {
+  private querySQLPPL(query: string, language: string): Promise<JdbcType> {
     return this.deps.http
       .fetch({
         method: 'POST',
         path: `/api/sql_console/${language}query`,
-        body: `{"query":"${query}"}`,
+        body: `{"query":"${query.replace(/"/g, '\\"')}"}`,
       })
-      .then((response) => JSON.parse(response.data.resp));
+      .then((response) => {
+        console.log('explain response', response);
+        return JSON.parse(response.data.resp);
+      });
+  }
+
+  private getHistogramDateFormat(histogramInterval: string) {
+    const unit = histogramInterval.match(/\D+/)![0] ?? null;
+    if (!unit) return '';
+
+    let dateFormat = '%Y';
+    if (unit === 'y') return dateFormat;
+    dateFormat += '-%m';
+    if (unit === 'M') return dateFormat;
+    dateFormat += '-%d';
+    if (unit === 'd' || unit === 'w') return dateFormat;
+    dateFormat += ' %H';
+    if (unit === 'h') return dateFormat;
+    dateFormat += ':%i';
+    if (unit === 'm') return dateFormat;
+    dateFormat += ':%s';
+    if (unit === 's') return dateFormat;
+    return dateFormat;
   }
 
   private aggsToDateHistogram(
-    aggs: JdbcType
+    aggs: JdbcType,
+    timeStringIndex: number = 0,
+    docCountIndex: number = 1
   ): Array<{ key_as_string: string; key: number; doc_count: number }> {
-    return aggs.datarows.map(([timeString, count]: any[]) => {
-      const datetime = moment(timeString);
-      return {
-        key_as_string: datetime.toISOString(),
-        key: datetime.valueOf(),
-        doc_count: count,
-      };
-    });
+    return aggs.datarows
+      .filter((row: any[]) => row[docCountIndex] > 0)
+      .map((row: any[]) => {
+        const datetime = moment(row[timeStringIndex]);
+        return {
+          key_as_string: datetime.toISOString(),
+          key: datetime.valueOf(),
+          doc_count: row[docCountIndex],
+        };
+      });
   }
 
   /*
@@ -240,6 +334,7 @@ export class SearchInterceptor {
    * @internal
    */
   private jdbcToJson(jdbc: JdbcType) {
+    console.log('jdbc', jdbc);
     return {
       hits: {
         total: jdbc.total,
