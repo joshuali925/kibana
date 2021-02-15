@@ -150,7 +150,7 @@ export class SearchInterceptor {
       const timeFilter =
         timeFilterRangeDsl && timeFilterRangeDsl[Object.keys(timeFilterRangeDsl)[0]];
 
-      let searchParams: SearchParams = {
+      const searchParams: SearchParams = {
         dateHistogramAggsKey,
         timeField: timeFilterRangeDsl && Object.keys(timeFilterRangeDsl)[0],
         histogramInterval: dateHistogramDsl?.fixed_interval || dateHistogramDsl?.calendar_interval,
@@ -181,7 +181,6 @@ export class SearchInterceptor {
     searchRequest: SearchRequest,
     searchParams: SearchParams
   ): Observable<IKibanaSearchResponse> {
-    console.log('dateHistogramParams', searchParams);
     const query = searchRequest.query[0].query || `select * from ${searchRequest.params.index}`;
     const sqlDateFormat = 'YYYY-MM-DD HH:mm:ss.SSSSSS';
     const timeFilterQuery = searchParams.timeFilter
@@ -193,16 +192,8 @@ export class SearchInterceptor {
       : '';
 
     const histogramDateFormat = this.getHistogramDateFormat(searchParams.histogramInterval);
-    const filteredQuery = `from (${query}) as f ${timeFilterQuery}`;
-    console.log('filteredQuery', filteredQuery);
-
     const dateHistogramQuery = `select DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}'), count(1) ${timeFilterQuery} as filtered from ${searchRequest.params.index} group by DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}')`;
 
-    // const dateHistogramQuery = `select DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}'), count(1) from kibana_sample_data_flights ${timeFilterQuery} group by DATE_FORMAT(timestamp, '${histogramDateFormat}')`;
-
-    // const dateHistogramQuery = `select DATE_FORMAT(${searchParams.timeField}, '${dateFormat}'), count(1) from ${searchRequest.params.index} group by DATE_FORMAT(${searchParams.timeField}, '${dateFormat}')`;
-
-    console.log('dateHistogramQuery', dateHistogramQuery);
     return from(
       this.querySQLPPL(dateHistogramQuery, 'sql').then((aggs: JdbcType) => {
         const histogram = this.aggsToDateHistogram(aggs);
@@ -256,9 +247,6 @@ export class SearchInterceptor {
       timeFilterQuery +
       ` | eval span=DATE_FORMAT(${searchParams.timeField}, '${histogramDateFormat}') | stats count() by span`;
 
-    console.log('dateHistogramQuery', dateHistogramQuery);
-    console.log('query', query);
-
     return from(
       this.querySQLPPL(dateHistogramQuery, 'ppl').then((aggs: JdbcType) => {
         const histogram = this.aggsToDateHistogram(aggs, 1, 0);
@@ -288,7 +276,6 @@ export class SearchInterceptor {
         body: `{"query":"${query.replace(/"/g, '\\"')}"}`,
       })
       .then((response) => {
-        console.log('explain response', response);
         return JSON.parse(response.data.resp);
       });
   }
@@ -334,7 +321,6 @@ export class SearchInterceptor {
    * @internal
    */
   private jdbcToJson(jdbc: JdbcType) {
-    console.log('jdbc', jdbc);
     return {
       hits: {
         total: jdbc.total,

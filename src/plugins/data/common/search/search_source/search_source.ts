@@ -262,7 +262,6 @@ export class SearchSource {
     const searchRequest = await this.flatten();
     const queryLanguage = searchRequest.query?.[0].language;
     this.history = [searchRequest];
-    console.log('searchRequest', searchRequest);
 
     let response;
     if (
@@ -279,8 +278,6 @@ export class SearchSource {
       throw new RequestFailure(null, response);
     }
 
-    console.log('response', response);
-    console.log('------------------------');
     return response;
   }
 
@@ -325,7 +322,6 @@ export class SearchSource {
     const params = getSearchParamsFromRequest(searchRequest, {
       getConfig,
     });
-    console.log('params', params);
 
     let query = {};
     const queryLanguage = searchRequest.query[0]?.language;
